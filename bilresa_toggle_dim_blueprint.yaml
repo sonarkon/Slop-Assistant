@@ -1,0 +1,156 @@
+blueprint:
+  name: IKEA BILRESA - Click Toggle & Smooth Dim
+  description: >
+    Toggle one or more lights on/off with a click of the IKEA BILRESA scroll
+    wheel, and smoothly dim them up/down by scrolling. Requires the custom
+    "ha-ikea-bilresa" integration
+    (https://github.com/Vituhlos/ha-ikea-bilresa) and its per-channel
+    `event` entities.
+
+    Turning on restores each light's last known brightness (no forced reset
+    value). Dimming steps each targeted light individually, scaled by the
+    number of notches reported per scroll batch, so lights that started at
+    different brightness levels keep their own relative state.
+  domain: automation
+  source_url: https://github.com/Vituhlos/ha-ikea-bilresa
+  input:
+    wheel_channel:
+      name: BILRESA Wheel Channel
+      description: >
+        The event entity for the wheel channel to use, e.g.
+        event.bilresa_scroll_wheel_channel_1
+      selector:
+        entity:
+          domain: event
+
+    target_lights:
+      name: Lights
+      description: The light(s) to toggle and dim.
+      selector:
+        target:
+          entity:
+            domain: light
+
+    percent_per_notch:
+      name: Brightness change per notch
+      description: How many percent the brightness changes per scroll notch.
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 20
+          unit_of_measurement: "%"
+          mode: box
+
+    click_transition:
+      name: Click transition (seconds)
+      description: Transition time when toggling lights on/off.
+      default: 0.3
+      selector:
+        number:
+          min: 0
+          max: 5
+          step: 0.1
+          unit_of_measurement: s
+          mode: box
+
+    dim_transition:
+      name: Dim transition (seconds)
+      description: >
+        Transition time per dim step. Around 1s bridges the wheel's
+        ~500ms-1s notch batches for a smooth ramp.
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 5
+          step: 0.1
+          unit_of_measurement: s
+          mode: box
+
+mode: queued
+max: 20
+
+triggers:
+  - trigger: event.received
+    target:
+      entity_id: !input wheel_channel
+    options:
+      event_type:
+        - press
+    id: click
+
+  - trigger: event.received
+    target:
+      entity_id: !input wheel_channel
+    options:
+      event_type:
+        - rotate_up
+    id: brighter
+
+  - trigger: event.received
+    target:
+      entity_id: !input wheel_channel
+    options:
+      event_type:
+        - rotate_down
+    id: dimmer
+
+variables:
+  lights: !input target_lights
+  percent_per_notch: !input percent_per_notch
+
+actions:
+  - choose:
+
+      # ── Click: unambiguous on/off ──────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: click
+        sequence:
+          - if:
+              - condition: template
+                value_template: >
+                  {{ lights.entity_id | select('is_state', 'on') | list | count > 0 }}
+            then:
+              - action: light.turn_off
+                target: !input target_lights
+                data:
+                  transition: !input click_transition
+            else:
+              - action: light.turn_on
+                target: !input target_lights
+                data:
+                  transition: !input click_transition
+
+      # ── Scroll up: brighter (relative step, per-light) ──────────────────
+      - conditions:
+          - condition: trigger
+            id: brighter
+        sequence:
+          - action: light.turn_on
+            target: !input target_lights
+            data:
+              brightness_step_pct: >
+                {% if trigger.event is defined %}
+                  {{ (trigger.event.data.notches | int(1)) * percent_per_notch }}
+                {% else %}
+                  {{ (trigger.to_state.attributes.notches | int(1)) * percent_per_notch }}
+                {% endif %}
+              transition: !input dim_transition
+
+      # ── Scroll down: dimmer (relative step, per-light) ───────────────────
+      - conditions:
+          - condition: trigger
+            id: dimmer
+        sequence:
+          - action: light.turn_on
+            target: !input target_lights
+            data:
+              brightness_step_pct: >
+                {% if trigger.event is defined %}
+                  {{ (trigger.event.data.notches | int(1)) * percent_per_notch * -1 }}
+                {% else %}
+                  {{ (trigger.to_state.attributes.notches | int(1)) * percent_per_notch * -1 }}
+                {% endif %}
+              transition: !input dim_transition
