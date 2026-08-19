@@ -3,7 +3,7 @@
 A personal collection of Home Assistant blueprints, scripts, and tools —
 vibe-coded with [Claude](https://claude.ai).
 
-Everything here is built to solve a problem I ran into with my own
+Everything here is built to solve a real problem I ran into with my own
 smart home setup, then cleaned up and shared in case it's useful to someone
 else. 
 
@@ -22,6 +22,8 @@ change it, ship it — no strings attached.
 A Home Assistant automation blueprint for the
 [IKEA BILRESA scroll wheel](https://github.com/Vituhlos/ha-ikea-bilresa),
 built on top of the excellent `ha-ikea-bilresa` custom integration.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fsonarkon%2Fslop_assistant%2Fmain%2Fblueprints%2Fautomation%2Fbilresa-toggle-dim.yaml)
 
 **What it does:**
 
@@ -52,10 +54,10 @@ wheel channel and your lights.
 
 **Setup:**
 
-1. Copy `blueprints/automation/bilresa-toggle-dim.yaml` into
-   `config/blueprints/automation/local/` on your Home Assistant instance
-   (or import it via *Settings → Automations → Blueprints → Import
-   Blueprint* if you're pointing at a hosted URL).
+1. Click the **Import Blueprint** badge above (it pre-fills the blueprint's
+   raw URL into your own Home Assistant instance's import dialog), or
+   copy `blueprints/automation/bilresa-toggle-dim.yaml` manually into
+   `config/blueprints/automation/local/` on your Home Assistant instance.
 2. Go to *Settings → Automations → Create Automation → Use Blueprint* and
    pick **"IKEA BILRESA - Click Toggle & Smooth Dim"**.
 3. Select your wheel's channel `event` entity (e.g.
