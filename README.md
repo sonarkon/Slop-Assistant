@@ -3,11 +3,9 @@
 A personal collection of Home Assistant blueprints, scripts, and tools —
 vibe-coded with [Claude](https://claude.ai).
 
-Everything here is built to solve a real problem I ran into with my own
+Everything here is built to solve a problem I ran into with my own
 smart home setup, then cleaned up and shared in case it's useful to someone
-else. Expect things to be pragmatic rather than polished, and expect the
-collection to grow over time as I build (and Claude helps me build) more
-tools.
+else. 
 
 ## License
 
