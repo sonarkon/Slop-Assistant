@@ -1,0 +1,92 @@
+esphome:
+  name: onkyo-ri-bridge
+  friendly_name: Onkyo RI Bridge
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Onkyo RI Bridge Fallback"
+    password: "esphome123"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+
+# ──────────────────────────────────────────────
+# Wiring:
+#   GPIO4 → 470Ω resistor → 3.5mm mono jack tip (Onkyo RI input)
+#   GND   → 3.5mm mono jack sleeve
+#
+#   Note: The RI bus operates at 5V logic. The ESP32 outputs 3.3V,
+#   which works in practice. For a cleaner signal use an NPN transistor
+#   (e.g. 2N2222) as a level shifter.
+#
+# RI command codes (community-verified):
+#   Volume Up  : 0x1A2
+#   Volume Down: 0x1A3
+#   Power On   : 0x2F  (Power On + CD input)
+#   Power Off  : 0x420 (Standby)
+#
+#   Tested on TX-SR603 / TX-8020. Should work on R-1045 / CS-1045.
+#   If power codes don't respond, try 0x1AE (standby toggle).
+# ──────────────────────────────────────────────
+
+remote_transmitter:
+  pin: GPIO4
+  carrier_duty_percent: 100%  # RI is a DC signal, no carrier frequency
+
+button:
+  - platform: template
+    name: "Volume Up"
+    id: onkyo_vol_up
+    icon: mdi:volume-plus
+    on_press:
+      - remote_transmitter.transmit_onkyo_ri:
+          code: 0x1A2
+
+  - platform: template
+    name: "Volume Down"
+    id: onkyo_vol_down
+    icon: mdi:volume-minus
+    on_press:
+      - remote_transmitter.transmit_onkyo_ri:
+          code: 0x1A3
+
+  - platform: template
+    name: "Power On"
+    id: onkyo_power_on
+    icon: mdi:power
+    on_press:
+      - remote_transmitter.transmit_onkyo_ri:
+          code: 0x2F
+
+  - platform: template
+    name: "Power Off"
+    id: onkyo_power_off
+    icon: mdi:power-off
+    on_press:
+      - remote_transmitter.transmit_onkyo_ri:
+          code: 0x420
+
+  - platform: template
+    name: "Input Optical"
+    id: onkyo_input_optical
+    icon: mdi:toslink
+    on_press:
+      - remote_transmitter.transmit_onkyo_ri:
+          code: 0x120  # BD/DVD input — verify this maps to optical on R-1045
+                       # Alternatives to try: 0x70 (TAPE), 0x170 (DOCK)

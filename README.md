@@ -67,4 +67,88 @@ wheel channel and your lights.
 4. Optionally tune the brightness-per-notch and transition timings to
    taste.
 
+---
+
+### 2. Onkyo RI - Volume Control via Webhook (Automation Blueprint)
+
+`blueprints/automation/onkyo_volume_control.yaml`
+
+Control an Onkyo receiver's volume with an LG Magic Remote, even when the
+TV's audio output is set to optical — which normally blocks the TV's own
+volume keys entirely.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fsonarkon%2FSlop-Assistant%2Fmain%2Fblueprints%2Fautomation%2Fonkyo_volume_control.yaml)
+
+**What it does:**
+
+- Listens for two incoming webhooks (volume up / volume down)
+- On each webhook, presses the matching button entity on an ESPHome
+  Onkyo RI Bridge, which sends the RI command over a wired 3.5mm
+  connection to the receiver
+
+**Why this works around the optical lockout:** When a rooted LG webOS TV
+uses [lginputhook](https://github.com/Simon34545/lginputhook), button
+presses are intercepted at kernel level — before the TV firmware decides to
+suppress them because optical audio is selected. The hook fires a `curl`
+POST to Home Assistant, which is what this blueprint listens for.
+
+**Requirements:**
+
+- An ESP32 flashed with the included ESPHome config (`esphome/onkyo-ri-bridge.yaml`)
+- A rooted LG webOS TV with [lginputhook](https://github.com/Simon34545/lginputhook)
+  installed and configured to POST to the two webhook URLs on volume keypress
+- The [webOS Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel)
+  for autostart on the TV
+
+**Hardware:**
+
+- ESP32 (any dev board)
+- 470Ω resistor
+- 3.5mm mono jack → Onkyo RI input
+
+**Setup:**
+
+1. Flash `esphome/onkyo-ri-bridge.yaml` to your ESP32 via the ESPHome
+   Dashboard in Home Assistant (first flash: USB, then OTA).
+2. Import this blueprint and create an automation — point it at your ESP32's
+   volume button entities and set the webhook IDs to match what lginputhook
+   is configured to POST to.
+3. In lginputhook's web UI (`http://[TV-IP]:1842`), set the volume-up key
+   (ID 115) and volume-down key (ID 114) to:
+   ```
+   curl -s -X POST http://[HA-IP]:8123/api/webhook/onkyo_volume_up
+   curl -s -X POST http://[HA-IP]:8123/api/webhook/onkyo_volume_down
+   ```
+
+---
+
+### 3. Onkyo RI - Power Sync with TV (Automation Blueprint)
+
+`blueprints/automation/onkyo_power_sync.yaml`
+
+Automatically powers an Onkyo receiver on and off in sync with any TV
+integrated in Home Assistant.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fsonarkon%2FSlop-Assistant%2Fmain%2Fblueprints%2Fautomation%2Fonkyo_power_sync.yaml)
+
+**What it does:**
+
+- When the TV turns on → sends RI power-on to the receiver
+- When the TV has been off for a configurable delay → sends RI standby
+- The delay avoids cutting power during accidental TV restarts
+
+**Requirements:**
+
+- An ESP32 flashed with `esphome/onkyo-ri-bridge.yaml`
+- The TV integrated in Home Assistant as a `media_player` entity
+
+**Setup:**
+
+1. Import this blueprint and create an automation.
+2. Select your TV's `media_player` entity and the power on/off button
+   entities from the Onkyo RI Bridge.
+3. Tune the power-off delay to taste (default: 2 minutes).
+
+---
+
 More tools will land here over time — check back for updates.

@@ -1,0 +1,90 @@
+blueprint:
+  name: Onkyo RI - Volume Control via Webhook
+  description: >
+    Control an Onkyo receiver's volume via two incoming webhooks — one for
+    volume up, one for volume down. Designed to pair with lginputhook on a
+    rooted LG webOS TV: the TV intercepts Magic Remote volume keypresses and
+    fires these webhooks, bypassing the "optical out mutes TV volume" lockout.
+
+    Each webhook press calls the corresponding button entity on an ESPHome
+    Onkyo RI Bridge, which sends the RI command over a wired 3.5mm connection
+    to the receiver's RI input.
+
+    Requires:
+    - ESPHome Onkyo RI Bridge flashed to an ESP32 (see esphome/onkyo-ri-bridge.yaml)
+    - lginputhook installed on a rooted LG webOS TV, configured to POST to
+      the two webhook URLs on volume keypress
+  domain: automation
+  source_url: https://github.com/sonarkon/Slop-Assistant
+
+  input:
+    webhook_id_up:
+      name: Webhook ID — Volume Up
+      description: >
+        The webhook ID for volume up. Must match what lginputhook POSTs to.
+        The full URL will be http://[HA-IP]:8123/api/webhook/[this-id]
+      default: onkyo_volume_up
+      selector:
+        text:
+
+    webhook_id_down:
+      name: Webhook ID — Volume Down
+      description: >
+        The webhook ID for volume down. Must match what lginputhook POSTs to.
+      default: onkyo_volume_down
+      selector:
+        text:
+
+    button_volume_up:
+      name: ESPHome Button — Volume Up
+      description: >
+        The button entity on the Onkyo RI Bridge ESP32 that sends the
+        volume-up RI command. Typically button.onkyo_ri_bridge_volume_up.
+      selector:
+        entity:
+          domain: button
+
+    button_volume_down:
+      name: ESPHome Button — Volume Down
+      description: >
+        The button entity on the Onkyo RI Bridge ESP32 that sends the
+        volume-down RI command. Typically button.onkyo_ri_bridge_volume_down.
+      selector:
+        entity:
+          domain: button
+
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: webhook
+    webhook_id: !input webhook_id_up
+    allowed_methods:
+      - POST
+    local_only: true
+    id: vol_up
+
+  - trigger: webhook
+    webhook_id: !input webhook_id_down
+    allowed_methods:
+      - POST
+    local_only: true
+    id: vol_down
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: vol_up
+        sequence:
+          - action: button.press
+            target:
+              entity_id: !input button_volume_up
+
+      - conditions:
+          - condition: trigger
+            id: vol_down
+        sequence:
+          - action: button.press
+            target:
+              entity_id: !input button_volume_down

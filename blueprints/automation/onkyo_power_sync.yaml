@@ -1,0 +1,127 @@
+blueprint:
+  name: Onkyo RI - Power Sync with TV
+  description: >
+    Automatically power an Onkyo receiver on or off in sync with a TV's
+    power state. When the TV turns on, an RI "power on" command is sent to
+    the receiver. When the TV has been off for a configurable delay, an RI
+    "standby" command follows.
+
+    Requires:
+    - ESPHome Onkyo RI Bridge flashed to an ESP32 (see esphome/onkyo-ri-bridge.yaml)
+    - The TV integrated in Home Assistant as a media_player entity
+  domain: automation
+  source_url: https://github.com/sonarkon/Slop-Assistant
+
+  input:
+    tv_entity:
+      name: TV
+      description: >
+        The media_player entity for the TV whose power state should be
+        followed.
+      selector:
+        entity:
+          domain: media_player
+
+    button_power_on:
+      name: ESPHome Button — Power On
+      description: >
+        The button entity on the Onkyo RI Bridge ESP32 that sends the
+        power-on RI command. Typically button.onkyo_ri_bridge_power_on.
+      selector:
+        entity:
+          domain: button
+
+    button_power_off:
+      name: ESPHome Button — Power Off
+      description: >
+        The button entity on the Onkyo RI Bridge ESP32 that sends the
+        standby RI command. Typically button.onkyo_ri_bridge_power_off.
+      selector:
+        entity:
+          domain: button
+
+    button_input_optical:
+      name: ESPHome Button — Input Optical
+      description: >
+        The button entity that switches the receiver's input to optical.
+        Typically button.onkyo_ri_bridge_input_optical. Leave empty to skip
+        input switching.
+      default: []
+      selector:
+        entity:
+          domain: button
+
+    input_switch_delay:
+      name: Input switch delay (seconds)
+      description: >
+        How long to wait after powering on before sending the input-switch
+        command. Gives the receiver time to fully boot up before accepting
+        RI input commands.
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 15
+          unit_of_measurement: s
+          mode: box
+
+    power_off_delay:
+      name: Power-off delay (minutes)
+      description: >
+        How long the TV must be off before the receiver is sent to standby.
+        A short delay avoids cutting power during accidental TV restarts.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: min
+          mode: box
+
+mode: restart
+
+triggers:
+  - trigger: state
+    entity_id: !input tv_entity
+    to:
+      - "on"
+      - idle
+      - playing
+    id: tv_on
+
+  - trigger: state
+    entity_id: !input tv_entity
+    to: "off"
+    for:
+      minutes: !input power_off_delay
+    id: tv_off
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: tv_on
+        sequence:
+          - action: button.press
+            target:
+              entity_id: !input button_power_on
+          - delay:
+              seconds: !input input_switch_delay
+          - if:
+              - condition: template
+                value_template: "{{ input_optical != [] and input_optical != '' }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: !input button_input_optical
+
+variables:
+  input_optical: !input button_input_optical
+
+      - conditions:
+          - condition: trigger
+            id: tv_off
+        sequence:
+          - action: button.press
+            target:
+              entity_id: !input button_power_off
