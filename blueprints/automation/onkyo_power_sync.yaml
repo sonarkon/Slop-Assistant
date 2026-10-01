@@ -1,81 +1,67 @@
 blueprint:
-  name: Onkyo RI - Power Sync with TV
+  name: Onkyo Bridge - Power & Input Sync with TV
   description: >
-    Automatically power an Onkyo receiver on or off in sync with a TV's
-    power state. When the TV turns on, an RI "power on" command is sent to
-    the receiver. When the TV has been off for a configurable delay, an RI
-    "standby" command follows.
+    When the TV turns on, wake the Onkyo receiver and switch it to the
+    optical input the TV is connected to.
 
-    Requires:
-    - ESPHome Onkyo RI Bridge flashed to an ESP32 (see esphome/onkyo-ri-bridge.yaml)
-    - The TV integrated in Home Assistant as a media_player entity
+    Uses the airplay-esp32 firmware's REST API (`/api/remote/send?cmd=...`)
+    instead of the older ESPHome button entities. Two commands are sent in
+    sequence: `ri-on` over the wired RI bus (discrete, so it is always safe
+    to send even if the receiver is already on) and `opt` over IR (also
+    safe to repeat — it selects the optical input rather than toggling
+    anything).
+
+    Requires one `rest_command` defined once in configuration.yaml:
+
+    ```yaml
+    rest_command:
+      onkyo_remote:
+        url: "http://{{ host }}/api/remote/send?cmd={{ cmd }}"
+        method: GET
+        timeout: 5
+    ```
+
+    The bridge's own completion check is known to misreport failure even
+    when the command reached the receiver correctly (see
+    docs/HARDWARE.md in sonarkon/Slop-Assistant) — this blueprint does not
+    treat a non-2xx response as fatal, it just fires the commands.
+
+    This blueprint only handles turning the receiver on. It intentionally
+    does not turn it off when the TV does, since AirPlay playback also
+    wakes the receiver independently (see the firmware's own
+    `CONFIG_REMOTE_AUTO_INPUT`) and the two should not fight over standby.
   domain: automation
   source_url: https://github.com/sonarkon/Slop-Assistant
 
   input:
     tv_entity:
       name: TV
-      description: >
-        The media_player entity for the TV whose power state should be
-        followed.
+      description: The media_player entity for the TV to follow.
       selector:
         entity:
           domain: media_player
 
-    button_power_on:
-      name: ESPHome Button — Power On
+    onkyo_host:
+      name: Onkyo bridge address
       description: >
-        The button entity on the Onkyo RI Bridge ESP32 that sends the
-        power-on RI command. Typically button.onkyo_ri_bridge_power_on.
+        IP address or mDNS hostname of the ESP32 running the airplay-esp32
+        firmware, e.g. 192.168.178.57 or ESP32-AirPlay.local. A static DHCP
+        reservation is recommended so this does not need updating later.
       selector:
-        entity:
-          domain: button
-
-    button_power_off:
-      name: ESPHome Button — Power Off
-      description: >
-        The button entity on the Onkyo RI Bridge ESP32 that sends the
-        standby RI command. Typically button.onkyo_ri_bridge_power_off.
-      selector:
-        entity:
-          domain: button
-
-    button_input_optical:
-      name: ESPHome Button — Input Optical
-      description: >
-        The button entity that switches the receiver's input to optical.
-        Typically button.onkyo_ri_bridge_input_optical. Leave empty to skip
-        input switching.
-      default: []
-      selector:
-        entity:
-          domain: button
+        text:
 
     input_switch_delay:
       name: Input switch delay (seconds)
       description: >
-        How long to wait after powering on before sending the input-switch
-        command. Gives the receiver time to fully boot up before accepting
-        RI input commands.
-      default: 3
-      selector:
-        number:
-          min: 1
-          max: 15
-          unit_of_measurement: s
-          mode: box
-
-    power_off_delay:
-      name: Power-off delay (minutes)
-      description: >
-        How long the TV must be off before the receiver is sent to standby.
-        A short delay avoids cutting power during accidental TV restarts.
+        How long to wait after the wake command before sending the input
+        command. Gives the receiver a moment to settle after waking from
+        standby before it reliably accepts the next IR command.
       default: 2
       selector:
         number:
           min: 0
-          max: 30
-          unit_of_measurement: min
+          max: 15
+          unit_of_measurement: s
           mode: box
 
 mode: restart
@@ -87,41 +73,18 @@ triggers:
       - "on"
       - idle
       - playing
-    id: tv_on
-
-  - trigger: state
-    entity_id: !input tv_entity
-    to: "off"
-    for:
-      minutes: !input power_off_delay
-    id: tv_off
-
-actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: tv_on
-        sequence:
-          - action: button.press
-            target:
-              entity_id: !input button_power_on
-          - delay:
-              seconds: !input input_switch_delay
-          - if:
-              - condition: template
-                value_template: "{{ input_optical != [] and input_optical != '' }}"
-            then:
-              - action: button.press
-                target:
-                  entity_id: !input button_input_optical
 
 variables:
-  input_optical: !input button_input_optical
+  host: !input onkyo_host
 
-      - conditions:
-          - condition: trigger
-            id: tv_off
-        sequence:
-          - action: button.press
-            target:
-              entity_id: !input button_power_off
+actions:
+  - action: rest_command.onkyo_remote
+    data:
+      host: "{{ host }}"
+      cmd: ri-on
+  - delay:
+      seconds: !input input_switch_delay
+  - action: rest_command.onkyo_remote
+    data:
+      host: "{{ host }}"
+      cmd: opt
