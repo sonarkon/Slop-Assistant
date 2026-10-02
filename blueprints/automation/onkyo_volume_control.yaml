@@ -1,19 +1,26 @@
 blueprint:
-  name: Onkyo Bridge - Volume Control via Webhook
+  name: Onkyo Bridge - Volume & Mute Control via Webhook
   description: >
-    Forward the LG Magic Remote's volume keys to the Onkyo receiver, via two
-    incoming webhooks — one for volume up, one for volume down. Pairs with
-    lginputhook on a rooted LG webOS TV: the TV intercepts Magic Remote
-    volume keypresses (Linux key codes 114/115) at the kernel level and
-    fires these webhooks, bypassing LG's firmware lockout that otherwise
-    disables the volume keys once the TV's audio output is set to optical.
+    Forward the LG Magic Remote's volume and mute keys to the Onkyo
+    receiver, via three incoming webhooks — volume up, volume down, and
+    mute. Pairs with lginputhook on a rooted LG webOS TV: the TV intercepts
+    Magic Remote keypresses at the kernel level and fires these webhooks,
+    bypassing LG's firmware lockout that otherwise disables the volume keys
+    once the TV's audio output is set to optical.
 
     Uses the airplay-esp32 firmware's REST API (`/api/remote/send?cmd=...`)
-    instead of the older ESPHome button entities. `volup`/`voldown` are
-    relative, non-idempotent IR commands — each webhook call sends exactly
+    instead of the older ESPHome button entities. `volup`/`voldown`/`mute`
+    are all relative/toggle IR commands — each webhook call sends exactly
     one step, matching one physical keypress. Do not add retries or repeats
-    around this: sending the same volume command twice moves the volume
-    twice.
+    around this: sending the same command twice moves the volume twice, or
+    toggles mute back off.
+
+    The mute webhook also sends `opt` first, selecting the TV's optical
+    input before muting — the Magic Remote's mute key is pressed while
+    watching TV, so this guards against muting while the receiver is on a
+    different input for some other reason. `opt` is safe to send every
+    time: it selects the optical input rather than toggling anything, so it
+    never undoes itself, unlike `mute`.
 
     Requires one `rest_command` defined once in configuration.yaml (shared
     with the Onkyo Bridge - Power & Input Sync blueprint, if also in use):
@@ -27,7 +34,7 @@ blueprint:
     ```
 
     Also requires lginputhook installed on the rooted LG webOS TV,
-    configured to POST to the two webhook URLs on volume keypress.
+    configured to POST to the webhook URLs on keypress.
   domain: automation
   source_url: https://github.com/sonarkon/Slop-Assistant
 
@@ -46,6 +53,14 @@ blueprint:
       description: >
         The webhook ID for volume down. Must match what lginputhook POSTs to.
       default: onkyo_volume_down
+      selector:
+        text:
+
+    webhook_id_mute:
+      name: Webhook ID - Mute
+      description: >
+        The webhook ID for mute. Must match what lginputhook POSTs to.
+      default: onkyo_mute
       selector:
         text:
 
@@ -75,11 +90,32 @@ triggers:
     local_only: true
     id: vol_down
 
+  - trigger: webhook
+    webhook_id: !input webhook_id_mute
+    allowed_methods:
+      - POST
+    local_only: true
+    id: mute
+
 variables:
   host: !input onkyo_host
 
 actions:
-  - action: rest_command.onkyo_remote
-    data:
-      host: "{{ host }}"
-      cmd: "{{ 'volup' if trigger.id == 'vol_up' else 'voldown' }}"
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: mute
+        sequence:
+          - action: rest_command.onkyo_remote
+            data:
+              host: "{{ host }}"
+              cmd: opt
+          - action: rest_command.onkyo_remote
+            data:
+              host: "{{ host }}"
+              cmd: mute
+    default:
+      - action: rest_command.onkyo_remote
+        data:
+          host: "{{ host }}"
+          cmd: "{{ 'volup' if trigger.id == 'vol_up' else 'voldown' }}"
