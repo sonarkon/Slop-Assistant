@@ -27,7 +27,7 @@ blueprint:
     docs/HARDWARE.md in sonarkon/Slop-Assistant) — this blueprint does not
     treat a non-2xx response as fatal, it just fires the commands.
 
-    When the TV has been off for a configurable time, the receiver is put in
+    When the TV has been off for a configurable number of seconds, the receiver is put in
     standby with `ri-off` (discrete as well: it only ever switches off, it
     cannot toggle the receiver on by accident). This leg can be switched off
     below. Note that it also cuts AirPlay playback if the TV goes off while
@@ -78,16 +78,18 @@ blueprint:
         boolean:
 
     power_off_delay:
-      name: Standby delay (minutes)
+      name: Standby delay (seconds)
       description: >
         How long the TV must stay off before the receiver goes to standby. A
-        short delay avoids cutting the sound during an accidental TV restart.
-      default: 2
+        short delay avoids cutting the sound during an accidental TV restart;
+        0 switches it off at once. (Earlier versions of this blueprint counted
+        this in minutes - an old value of 2 now means 2 seconds.)
+      default: 60
       selector:
         number:
           min: 0
-          max: 60
-          unit_of_measurement: min
+          max: 3600
+          unit_of_measurement: s
           mode: box
 
 mode: restart
@@ -105,7 +107,7 @@ triggers:
     entity_id: !input tv_entity
     to: "off"
     for:
-      minutes: !input power_off_delay
+      seconds: !input power_off_delay
     id: tv_off
 
 variables:
