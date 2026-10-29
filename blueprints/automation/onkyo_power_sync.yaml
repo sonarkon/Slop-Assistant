@@ -2,7 +2,8 @@ blueprint:
   name: Onkyo Bridge - Power & Input Sync with TV
   description: >
     When the TV turns on, wake the Onkyo receiver and switch it to the
-    optical input the TV is connected to.
+    optical input the TV is connected to. When the TV goes off, the receiver
+    follows into standby.
 
     Uses the airplay-esp32 firmware's REST API (`/api/remote/send?cmd=...`)
     instead of the older ESPHome button entities. Two commands are sent in
@@ -26,10 +27,13 @@ blueprint:
     docs/HARDWARE.md in sonarkon/Slop-Assistant) — this blueprint does not
     treat a non-2xx response as fatal, it just fires the commands.
 
-    This blueprint only handles turning the receiver on. It intentionally
-    does not turn it off when the TV does, since AirPlay playback also
-    wakes the receiver independently (see the firmware's own
-    `CONFIG_REMOTE_AUTO_INPUT`) and the two should not fight over standby.
+    When the TV has been off for a configurable time, the receiver is put in
+    standby with `ri-off` (discrete as well: it only ever switches off, it
+    cannot toggle the receiver on by accident). This leg can be switched off
+    below. Note that it also cuts AirPlay playback if the TV goes off while
+    you are listening that way: the TV-off trigger does not know whether
+    AirPlay is playing. If that matters, switch the leg off or pick a long
+    delay.
   domain: automation
   source_url: https://github.com/sonarkon/Slop-Assistant
 
@@ -64,6 +68,28 @@ blueprint:
           unit_of_measurement: s
           mode: box
 
+    power_off_enabled:
+      name: Standby when the TV goes off
+      description: >
+        Put the receiver in standby after the TV has been off for the delay
+        below. Switch off to leave standby to you (or another automation).
+      default: true
+      selector:
+        boolean:
+
+    power_off_delay:
+      name: Standby delay (minutes)
+      description: >
+        How long the TV must stay off before the receiver goes to standby. A
+        short delay avoids cutting the sound during an accidental TV restart.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+          mode: box
+
 mode: restart
 
 triggers:
@@ -73,18 +99,43 @@ triggers:
       - "on"
       - idle
       - playing
+    id: tv_on
+
+  - trigger: state
+    entity_id: !input tv_entity
+    to: "off"
+    for:
+      minutes: !input power_off_delay
+    id: tv_off
 
 variables:
   host: !input onkyo_host
+  power_off_enabled: !input power_off_enabled
 
 actions:
-  - action: rest_command.onkyo_remote
-    data:
-      host: "{{ host }}"
-      cmd: ri-on
-  - delay:
-      seconds: !input input_switch_delay
-  - action: rest_command.onkyo_remote
-    data:
-      host: "{{ host }}"
-      cmd: opt
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: tv_on
+        sequence:
+          - action: rest_command.onkyo_remote
+            data:
+              host: "{{ host }}"
+              cmd: ri-on
+          - delay:
+              seconds: !input input_switch_delay
+          - action: rest_command.onkyo_remote
+            data:
+              host: "{{ host }}"
+              cmd: opt
+
+      - conditions:
+          - condition: trigger
+            id: tv_off
+          - condition: template
+            value_template: "{{ power_off_enabled }}"
+        sequence:
+          - action: rest_command.onkyo_remote
+            data:
+              host: "{{ host }}"
+              cmd: ri-off
