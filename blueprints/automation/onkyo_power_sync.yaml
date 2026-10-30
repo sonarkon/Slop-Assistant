@@ -1,26 +1,39 @@
 blueprint:
-  name: Onkyo Bridge - Power & Input Sync with TV and Turntable
+  name: Onkyo Bridge - Power & Input Sync (TV, Turntable, AirPlay)
   description: >
-    Follows two sources and drives the Onkyo receiver accordingly:
+    The receiver is on while at least one source is active, and goes into
+    standby once none is. There is no hand-over between sources: whichever
+    source starts last picks the input, and the receiver only switches off
+    when the last one has stopped.
 
-    - **TV:** When the TV turns on, wake the receiver and switch it to the
-      optical input. When the TV has been off for a while, the receiver goes
-      into standby.
-    - **Turntable (optional):** When the turntable starts drawing power
-      (measured by a smart plug that stays switched on, e.g. IKEA GRILLPLATS),
-      wake the receiver and switch it to LINE 1. Leave the power sensor empty
-      to skip this part.
+    **Sources**
 
-    Uses the airplay-esp32 firmware's REST API (`/api/remote/send?cmd=...`)
-    instead of the older ESPHome button entities. Waking is done with `ri-on`
-    over the wired RI bus (discrete, so it is always safe to send even if the
-    receiver is already on; it also wakes the receiver from standby, which IR
-    alone may not do). The input is selected over IR with `opt` (TV) or
-    `line1` (turntable); both select an input rather than toggling anything,
-    so they are safe to repeat. Standby uses `ri-off` (discrete as well: it can
-    only switch off, never on by accident).
+    - **TV:** active while the media_player is on, idle or playing. When it
+      turns on, the receiver wakes and switches to the optical input.
+    - **Turntable (optional):** active while the plug's power sensor reads
+      above a threshold (smart plug that stays switched on, e.g. IKEA
+      GRILLPLATS). When it starts drawing power, the receiver wakes and
+      switches to LINE 1.
+    - **AirPlay (optional):** active while the bridge reports `playing`. The
+      bridge wakes the receiver and selects CD/COAX by itself, so there is no
+      wake leg for it here; it only keeps the receiver on. It needs a REST
+      binary sensor, see below.
 
-    Requires one `rest_command` defined once in configuration.yaml:
+    Leave the optional sensors empty to skip those sources.
+
+    **Standby** is sent (`ri-off`) when no source has been active for the
+    standby delay. A short pause of a record or an AirPlay track therefore
+    does not switch the receiver off if the delay is long enough. An
+    unavailable entity counts as inactive.
+
+    Uses the airplay-esp32 firmware's REST API (`/api/remote/send?cmd=...`).
+    Waking is `ri-on` over the wired RI bus (discrete: safe to send even if
+    the receiver is already on, and it also wakes it from standby, which IR
+    alone may not do). The input is selected over IR with `opt` or `line1`;
+    both select an input rather than toggling anything, so they are safe to
+    repeat. `ri-off` can only switch off, never on by accident.
+
+    Requires, once in configuration.yaml (restart Home Assistant afterwards):
 
     ```yaml
     rest_command:
@@ -28,19 +41,20 @@ blueprint:
         url: "http://{{ host }}/api/remote/send?cmd={{ cmd }}"
         method: GET
         timeout: 5
+
+    # Only for the AirPlay source. Use the bridge's address.
+    rest:
+      - resource: http://192.168.178.57/api/remote/status
+        scan_interval: 5
+        binary_sensor:
+          - name: "Onkyo Bridge AirPlay"
+            value_template: "{{ value_json.airplay == 'playing' }}"
     ```
 
     The bridge's own completion check is known to misreport failure even
-    when the command reached the receiver correctly (see
-    docs/HARDWARE.md in sonarkon/Slop-Assistant) - this blueprint does not
-    treat a non-2xx response as fatal, it just fires the commands.
-
-    **Standby does not cut a source that is in use:** when the TV has been off
-    for the delay, the receiver stays on while the turntable is drawing power;
-    when the turntable has stopped, it stays on while the TV is on. The
-    TV-off trigger still does not know about AirPlay, so it also cuts AirPlay
-    playback if the TV goes off while you are listening that way. If that
-    matters, switch the standby legs off or pick a long delay.
+    when the command reached the receiver correctly (see docs/HARDWARE.md in
+    sonarkon/Slop-Assistant) - this blueprint does not treat a non-2xx
+    response as fatal, it just fires the commands.
   domain: automation
   source_url: https://github.com/sonarkon/Slop-Assistant
 
@@ -68,29 +82,22 @@ blueprint:
           unit_of_measurement: s
           mode: box
 
-    tv_entity:
-      name: TV
-      description: The media_player entity for the TV to follow.
-      selector:
-        entity:
-          domain: media_player
-
     power_off_enabled:
-      name: Standby when the TV goes off
+      name: Standby when no source is active
       description: >
-        Put the receiver in standby after the TV has been off for the delay
-        below. Switch off to leave standby to you (or another automation).
+        Put the receiver in standby after all sources have been inactive for
+        the delay below. Switch off to leave standby to you (or another
+        automation).
       default: true
       selector:
         boolean:
 
     power_off_delay:
-      name: TV standby delay (seconds)
+      name: Standby delay (seconds)
       description: >
-        How long the TV must stay off before the receiver goes to standby. A
-        short delay avoids cutting the sound during an accidental TV restart;
-        0 switches it off at once. (Earlier versions of this blueprint counted
-        this in minutes - an old value of 2 now means 2 seconds.)
+        How long all sources must stay inactive before the receiver goes to
+        standby. A short delay avoids cutting the sound during an accidental
+        TV restart or a pause; 0 switches it off at once.
       default: 60
       selector:
         number:
@@ -99,12 +106,19 @@ blueprint:
           unit_of_measurement: s
           mode: box
 
+    tv_entity:
+      name: TV
+      description: The media_player entity for the TV to follow.
+      selector:
+        entity:
+          domain: media_player
+
     turntable_power_entity:
       name: Turntable power sensor (optional)
       description: >
         The power sensor (W) of the plug the turntable is connected to, e.g.
-        sensor.plattenspieler_power. Leave empty to disable the turntable
-        part. The sensor must cross the threshold to trigger, so a turntable
+        sensor.plattenspieler_power. Leave empty to skip the turntable. The
+        sensor must cross the threshold to wake the receiver, so a turntable
         that is already running when Home Assistant starts does nothing.
       default: []
       selector:
@@ -131,7 +145,7 @@ blueprint:
       name: Turntable switch-on debounce (seconds)
       description: >
         How long the power must stay above the threshold before the receiver
-        is switched. Filters short spikes, e.g. when the plug is plugged in.
+        is woken. Filters short spikes, e.g. when the plug is plugged in.
       default: 3
       selector:
         number:
@@ -140,30 +154,26 @@ blueprint:
           unit_of_measurement: s
           mode: box
 
-    turntable_power_off_enabled:
-      name: Standby when the turntable stops
+    airplay_entity:
+      name: AirPlay playing sensor (optional)
       description: >
-        Put the receiver in standby after the turntable has stayed below the
-        threshold for the delay below (and the TV is not on). Off by default,
-        because the receiver might be in use for AirPlay by then.
-      default: false
+        The binary_sensor that is on while the bridge plays AirPlay (the REST
+        sensor from the description above, e.g.
+        binary_sensor.onkyo_bridge_airplay). Leave empty to ignore AirPlay -
+        then the receiver may be switched off while you listen to AirPlay.
+      default: []
       selector:
-        boolean:
-
-    turntable_power_off_delay:
-      name: Turntable standby delay (seconds)
-      description: >
-        How long the draw must stay below the threshold before the receiver
-        goes to standby.
-      default: 300
-      selector:
-        number:
-          min: 0
-          max: 3600
-          unit_of_measurement: s
-          mode: box
+        entity:
+          domain: binary_sensor
+          multiple: true
 
 mode: restart
+
+trigger_variables:
+  tv: !input tv_entity
+  turntable: !input turntable_power_entity
+  turntable_threshold: !input turntable_threshold
+  airplay: !input airplay_entity
 
 triggers:
   - trigger: state
@@ -174,13 +184,6 @@ triggers:
       - playing
     id: tv_on
 
-  - trigger: state
-    entity_id: !input tv_entity
-    to: "off"
-    for:
-      seconds: !input power_off_delay
-    id: tv_off
-
   - trigger: numeric_state
     entity_id: !input turntable_power_entity
     above: !input turntable_threshold
@@ -188,25 +191,21 @@ triggers:
       seconds: !input turntable_on_delay
     id: turntable_on
 
-  - trigger: numeric_state
-    entity_id: !input turntable_power_entity
-    below: !input turntable_threshold
+  # Becomes true when the last active source has stopped; fires once it has
+  # stayed true for the standby delay.
+  - trigger: template
+    value_template: >
+      {{ not is_state(tv, ['on', 'idle', 'playing'])
+         and not (turntable | length > 0
+                  and states(turntable[0]) | float(0) > turntable_threshold | float(0))
+         and not (airplay | length > 0 and is_state(airplay[0], 'on')) }}
     for:
-      seconds: !input turntable_power_off_delay
-    id: turntable_off
+      seconds: !input power_off_delay
+    id: all_off
 
 variables:
   host: !input onkyo_host
-  tv: !input tv_entity
   power_off_enabled: !input power_off_enabled
-  turntable_power_off_enabled: !input turntable_power_off_enabled
-  turntable_sensor: !input turntable_power_entity
-  turntable_threshold: !input turntable_threshold
-  # True while the turntable is drawing power; false if no sensor is set.
-  turntable_active: >
-    {{ turntable_sensor | length > 0
-       and states(turntable_sensor[0]) | float(0) > turntable_threshold | float(0) }}
-  tv_active: "{{ is_state(tv, ['on', 'idle', 'playing']) }}"
 
 actions:
   - choose:
@@ -227,19 +226,6 @@ actions:
 
       - conditions:
           - condition: trigger
-            id: tv_off
-          - condition: template
-            value_template: "{{ power_off_enabled }}"
-          - condition: template
-            value_template: "{{ not turntable_active }}"
-        sequence:
-          - action: rest_command.onkyo_remote
-            data:
-              host: "{{ host }}"
-              cmd: ri-off
-
-      - conditions:
-          - condition: trigger
             id: turntable_on
         sequence:
           - action: rest_command.onkyo_remote
@@ -255,11 +241,9 @@ actions:
 
       - conditions:
           - condition: trigger
-            id: turntable_off
+            id: all_off
           - condition: template
-            value_template: "{{ turntable_power_off_enabled }}"
-          - condition: template
-            value_template: "{{ not tv_active }}"
+            value_template: "{{ power_off_enabled }}"
         sequence:
           - action: rest_command.onkyo_remote
             data:
