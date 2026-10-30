@@ -1,6 +1,6 @@
 blueprint:
   name: Onkyo Bridge - Power & Input Sync (TV, Turntable, AirPlay)
-  description: >
+  description: |
     The receiver is on while at least one source is active, and goes into
     standby once none is. There is no hand-over between sources: whichever
     source starts last picks the input, and the receiver only switches off

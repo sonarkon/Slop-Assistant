@@ -1,6 +1,6 @@
 blueprint:
   name: Onkyo Bridge - Volume & Mute Control via Webhook
-  description: >
+  description: |
     Forward the LG Magic Remote's volume and mute keys to the Onkyo
     receiver, via three incoming webhooks — volume up, volume down, and
     mute. Pairs with lginputhook on a rooted LG webOS TV: the TV intercepts
